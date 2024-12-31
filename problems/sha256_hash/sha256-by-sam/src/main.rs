@@ -1,7 +1,7 @@
 // Necessary imports
 use arith::{Field, FieldSerde};
 use expander_compiler::frontend::*;
-use expander_sha256::*;
+use sha256_by_sam::*;
 use rayon::prelude::*;
 use expander_rs::Proof;
 use internal::Serde;
