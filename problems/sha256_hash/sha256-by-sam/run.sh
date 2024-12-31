@@ -8,7 +8,7 @@ go mod -C problems/sha256_hash/SPJ tidy
 go build -C problems/sha256_hash/SPJ
 
 pushd $PWD && \
-cd problems/sha256_hash/expander-sha256 && \
+cd problems/sha256_hash/sha256-by-sam && \
 RUSTFLAGS="-C target-cpu=native" cargo build --release && \
 popd
 
@@ -19,9 +19,9 @@ mkdir -p spj_output/sha256_hash
 # par_factor is the arg after the mode arg
 problems/sha256_hash/SPJ/SPJ -cpu 16 -largestN 4096 \
   -memory 32768 -time 1200 \
-  -json "spj_output/sha256_hash/expander-sha256.json" \
-  -prover "problems/sha256_hash/expander-sha256/target/release/expander-sha256 prove 16 256" \
-  -verifier "problems/sha256_hash/expander-sha256/target/release/expander-sha256 verify 16 256"
+  -json "spj_output/sha256_hash/sha256-by-sam.json" \
+  -prover "problems/sha256_hash/sha256-by-sam/target/release/sha256-by-sam prove 16 256" \
+  -verifier "problems/sha256_hash/sha256-by-sam/target/release/sha256-by-sam verify 16 256"
 
 # Capture the exit status
 exit_status=$?
