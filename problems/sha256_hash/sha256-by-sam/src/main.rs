@@ -1,4 +1,4 @@
-// migrated from: https://github.com/PolyhedraZK/ExpanderCompilerCollection/blob/939cccbe0ff25a3f7c9dc2129131be3124c63589/expander_compiler/tests/keccak_gf2_full.rs
+// Necessary imports
 use arith::{Field, FieldSerde};
 use expander_compiler::frontend::*;
 use expander_sha256::*;
@@ -54,7 +54,6 @@ fn compute_sha256<C: Config>(api: &mut API<C>, input: &Vec<Variable>) -> Vec<Var
         0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
         0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
     ];
-//    let k: Vec<Vec<Variable>> = (0..64).map(|x| int2bit(api, k32[x])).collect(); 
 
     let mut w = vec![vec![api.constant(0); 32]; 64];
     for i in 0..16 {
@@ -94,7 +93,6 @@ fn compute_sha256<C: Config>(api: &mut API<C>, input: &Vec<Variable>) -> Vec<Var
         h[0] = add(api, s1, s0);
     }
 
-
     let mut result = add_const(api, h[0].clone(), h32[0].clone());
     for i in 1..8 {
         result.append(&mut add_const(api, h[i].clone(), h32[i].clone()));
@@ -105,7 +103,6 @@ fn compute_sha256<C: Config>(api: &mut API<C>, input: &Vec<Variable>) -> Vec<Var
 
 const WITNESS_GENERATED_MSG: &str = "witness generated";
 
-// migrated from: https://github.com/PolyhedraZK/Expander/blob/7670d3d63afa754975d85c2efc05a1b3a685f0a7/src/exec.rs
 fn dump_proof_and_claimed_v<F: Field + FieldSerde>(proof: &Proof, claimed_v: &F) -> Vec<u8> {
     let mut bytes = Vec::new();
 
@@ -123,8 +120,6 @@ fn load_proof_and_claimed_v<F: Field + FieldSerde>(bytes: &[u8]) -> (Proof, F) {
 
     (proof, claimed_v)
 }
-
-// input serde
 
 fn dump_inputs<F: Field + FieldSerde>(inputs: &[F]) -> Vec<u8> {
     let mut bytes = Vec::new();
@@ -153,14 +148,10 @@ fn prove(
     par_factor: usize,
     repeat_factor: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // STEP 1: SPJ sends you the pipe filepath that handles the input output communication
-    // STEP 2: Output your prover name, proof system name, and algorithm name
-    // Note the order here: send the prover name, algorithm name, and proof system name
-    write_string(out_pipe, "expander-sha256")?;
+    write_string(out_pipe, "sha256-by-sam")?;
     write_string(out_pipe, "GKR")?;
     write_string(out_pipe, "Expander")?;
 
-    // STEP 3: Prover make all precomputes in this step
     let compile_result = compile(&SHA256Circuit::default()).unwrap();
     let CompileResult {
         witness_solver,
@@ -177,7 +168,6 @@ fn prove(
     let config =
         expander_rs::Config::<expander_rs::GF2ExtConfigSha2>::new(expander_rs::GKRScheme::Vanilla);
 
-    // prepare mem used later
     let mut all_env = (0..par_factor)
         .map(|_| {
             let mut prover = expander_rs::Prover::new(&config);
@@ -187,15 +177,10 @@ fn prove(
         })
         .collect::<Vec<_>>();
 
-    // STEP 4: Output the Number of Keccak Instances
     write_u64(out_pipe, 8 * N_HASHES as u64 * par_factor as u64 * repeat_factor as u64)?;
 
-    // STEP 5: Read Input Data
-    println!("Start proving");
-    let start_time_orig = std::time::Instant::now();
     let all_input_bytes_flatten = read_blob(in_pipe)?;
 
-    // STEP 6: Hash the Data
     let all_input_bytes = all_input_bytes_flatten
         .chunks_exact(64 * 8 * N_HASHES)
         .collect::<Vec<_>>();
@@ -239,19 +224,15 @@ fn prove(
     });
     write_byte_array(out_pipe, &all_output.concat())?;
 
-    // STEP 7: Output a String to Indicate Witness Generation Finished
     let all_witness = all_assignments
         .iter()
         .map(|assignments| witness_solver.solve_witnesses(&assignments).unwrap())
         .collect::<Vec<_>>();
-    // group witness by repeat factor witnesses per group
+
     let all_witness_group = all_witness
         .chunks(repeat_factor).collect::<Vec<_>>();
     write_string(out_pipe, WITNESS_GENERATED_MSG)?;
 
-    // STEP 8: Output the Proof
-    println!("Time epoch 0 elapsed: {:?}", start_time_orig.elapsed());
-    println!("Start proving real");
     let mut all_proof = vec![vec![]; par_factor];
     let mut all_pis = vec![vec![]; par_factor];
     thread::scope(|s| {
@@ -262,7 +243,6 @@ fn prove(
             .zip(all_pis.iter_mut())
             .map(|((((prover, c), witness), full_proof), pis)| {
                 s.spawn(move || {
-                    // currently we have to manually convert witness to expander simd format
                     assert_eq!(witness[0].num_inputs_per_witness, 1 << c.log_input_size());
                     for rep in 0..repeat_factor {
                         c.layers[0].input_vals = (0..witness[rep].num_inputs_per_witness)
@@ -281,38 +261,27 @@ fn prove(
                         let (claimed_v, proof) = prover.prove(c);
                         full_proof.append(&mut dump_proof_and_claimed_v(&proof, &claimed_v));
                     }
-                    assert!(!full_proof.is_empty()); // sanity check
+                    assert!(!full_proof.is_empty());
                 })
             })
             .collect::<Vec<_>>();
         handles.into_iter().for_each(|h| h.join().unwrap());
     });
-    println!("Proving done");
-    println!("Time epoch 1 elapsed: {:?}", start_time_orig.elapsed());
-
-    println!("all_proof.len(): {}", all_proof.len());
-    println!("all_proof[0].len(): {}", all_proof[0].len());
 
     let proof_len = all_proof[0].len();
     let total_len = 8 + all_proof.len() * (8 + proof_len);
 
     let mut all_proof_serialized = vec![0u8; total_len];
-    // Write the lengths
     all_proof_serialized[0..8].copy_from_slice(&(all_proof.len() as u64).to_le_bytes());
 
-    // Use par_chunks_mut instead of for_each_with
     all_proof_serialized[8..].par_chunks_mut(proof_len + 8).enumerate().for_each(|(i, chunk)| {
         chunk[0..8].copy_from_slice(&(proof_len as u64).to_le_bytes());
         chunk[8..].copy_from_slice(&all_proof[i]);
     });
-    println!("Time epoch 2 elapsed: {:?}", start_time_orig.elapsed());
     write_byte_array(out_pipe, &all_proof_serialized)?;
-    println!("Time epoch 2.1 elapsed: {:?}, pipe writes: {:?}", start_time_orig.elapsed(), all_proof_serialized.len());
 
     let vk = vec![];
-    println!("Time epoch 3 elapsed: {:?}", start_time_orig.elapsed());
     write_byte_array(out_pipe, &vk)?;
-    println!("Time epoch 3.1 elapsed: {:?}, pipe writes: {:?}", start_time_orig.elapsed(), vk.len());
 
     let mut all_pis_serialized = vec![];
     all_pis_serialized.extend_from_slice(&(all_pis.len() as u64).to_le_bytes());
@@ -320,15 +289,11 @@ fn prove(
         all_pis_serialized.extend_from_slice(&(pis.len() as u64).to_le_bytes());
         all_pis_serialized.extend_from_slice(pis);
     }
-    println!("Time epoch 4 elapsed: {:?}", start_time_orig.elapsed());
     write_byte_array(out_pipe, &all_pis_serialized)?;
-    println!("Time epoch 4.1 elapsed: {:?}, pipe writes: {:?}", start_time_orig.elapsed(), all_pis_serialized.len());
 
     out_pipe.flush()?;
-    println!("all done");
     Ok(())
 }
-
 fn verify(
     in_pipe: &mut BufReader<File>,
     out_pipe: &mut File,
@@ -347,9 +312,6 @@ fn verify(
     let config =
         expander_rs::Config::<expander_rs::GF2ExtConfigSha2>::new(expander_rs::GKRScheme::Vanilla);
 
-    // STEP 9: SPJ starts your verifier by providing the pipe filepath that handles the input output communication
-
-    // STEP 10: SPJ sends the proof, verification key, and public input to the verifier
     let all_proof_serialized = read_blob(in_pipe)?;
     let _vk = read_blob(in_pipe)?;
     let all_pis_serialized = read_blob(in_pipe)?;
@@ -371,8 +333,6 @@ fn verify(
         all_pis.push(all_pis_serialized[cur + 8..cur + 8 + len as usize].to_vec());
         cur += 8 + len as usize;
     }
-
-    // STEP 11: Verify the Proof, and send back result
 
     let mut all_circuit = vec![expander_circuit.clone(); par_factor];
     let mut all_verifier = (0..par_factor)
